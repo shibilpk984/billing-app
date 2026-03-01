@@ -6,41 +6,39 @@ services:
     image: postgres:16
     container_name: billing_postgres
     restart: always
-
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: billing
-
     ports:
       - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 5
 
 
   backend:
     build:
       context: ../backend
       dockerfile: Dockerfile
-
     container_name: billing_backend
-
     restart: always
-
     ports:
       - "8001:8000"
-
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/billing
-
+      SECRET_KEY: super-long-random-production-secret-key
+      ENV: development
+      FRONTEND_URL: http://localhost:3000
     depends_on:
-      - postgres
-
+      postgres:
+        condition: service_healthy
     volumes:
       - ../storage:/app/storage
-
 
 volumes:
   postgres_data:
