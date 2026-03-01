@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import List
 
 from app.core.database import get_db
+from app.core.dependencies import require_tenant_user
 
-from .schema import AddItemRequest
+from .schema import AddItemRequest, OrderResponse
 from .service import (
     create_draft_order,
     list_draft_orders,
@@ -16,109 +18,106 @@ from .service import (
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-# Create draft order
-@router.post("/draft")
+# ----------------------------------------
+# CREATE DRAFT ORDER
+# ----------------------------------------
+@router.post("/draft", response_model=OrderResponse)
 def create_draft_order_route(
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...),
-    x_user_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
+
+    tenant_id = user.get("tenant_id")
+    user_id = user.get("user_id")
 
     return create_draft_order(
         db=db,
-        tenant_id=x_tenant_id,
-        user_id=x_user_id
+        tenant_id=tenant_id,
+        user_id=user_id
     )
 
 
-# List draft orders
-@router.get("/draft")
+# ----------------------------------------
+# LIST DRAFT ORDERS
+# ----------------------------------------
+@router.get("/draft", response_model=List[OrderResponse])
 def list_draft_orders_route(
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
 
-    return list_draft_orders(
-        db=db,
-        tenant_id=x_tenant_id
-    )
+    tenant_id = user.get("tenant_id")
+    return list_draft_orders(db=db, tenant_id=tenant_id)
 
 
-# Add item to order
+# ----------------------------------------
+# ADD ITEM TO ORDER
+# ----------------------------------------
 @router.post("/add-item")
 def add_item_to_order_route(
     data: AddItemRequest,
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
 
-    try:
+    tenant_id = user.get("tenant_id")
 
-        return add_item_to_order(
-            db=db,
-            tenant_id=x_tenant_id,
-            order_id=data.order_id,
-            item_id=data.item_id,
-            quantity=data.quantity
-        )
-
-    except Exception as e:
-
-        raise HTTPException(status_code=400, detail=str(e))
+    return add_item_to_order(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=data.order_id,
+        item_id=data.item_id,
+        quantity=data.quantity
+    )
 
 
-# Get items inside order (raw view)
+# ----------------------------------------
+# GET ORDER DETAILS
+# ----------------------------------------
 @router.get("/{order_id}")
 def get_order_details_route(
     order_id: int,
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
 
-    return get_order_details(
-        db=db,
-        tenant_id=x_tenant_id,
-        order_id=order_id
-    )
+    tenant_id = user.get("tenant_id")
+    return get_order_details(db=db, tenant_id=tenant_id, order_id=order_id)
 
 
-# Complete order
+# ----------------------------------------
+# COMPLETE ORDER
+# ----------------------------------------
 @router.post("/{order_id}/complete")
 def complete_order_route(
     order_id: int,
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
 
-    try:
+    tenant_id = user.get("tenant_id")
 
-        return complete_order(
-            db=db,
-            tenant_id=x_tenant_id,
-            order_id=order_id
-        )
-
-    except Exception as e:
-
-        raise HTTPException(status_code=400, detail=str(e))
+    return complete_order(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=order_id
+    )
 
 
-# FULL BILL SUMMARY (invoice data)
+# ----------------------------------------
+# FULL ORDER SUMMARY
+# ----------------------------------------
 @router.get("/{order_id}/summary")
 def get_order_summary_route(
     order_id: int,
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
 
-    try:
+    tenant_id = user.get("tenant_id")
 
-        return get_completed_order_summary(
-            db=db,
-            tenant_id=x_tenant_id,
-            order_id=order_id
-        )
-
-    except Exception as e:
-
-        raise HTTPException(status_code=400, detail=str(e))
+    return get_completed_order_summary(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=order_id
+    )

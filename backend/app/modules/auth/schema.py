@@ -1,25 +1,35 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 
 
-class TenantCreate(BaseModel):
-    name: str
-    business_type: str = "cafe"
-
-
-class UserCreate(BaseModel):
-    tenant_id: int
-    username: str
-    password: str
-    role: str = "admin"
-
-
+# -----------------------------
+# LOGIN
+# -----------------------------
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=4)
 
 
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    tenant_id: int
+# -----------------------------
+# SUPER ADMIN: CREATE TENANT
+# -----------------------------
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=2)
+    business_type: str = "cafe"
+    admin_username: str = Field(..., min_length=3)
+    admin_password: str = Field(..., min_length=4)
+
+
+# -----------------------------
+# SUPER ADMIN: RESET PASSWORD
+# -----------------------------
+class ResetPasswordRequest(BaseModel):
     user_id: int
+    new_password: str = Field(..., min_length=4)
+
+
+# -----------------------------
+# SUPER ADMIN: UPDATE TENANT STATUS
+# -----------------------------
+class UpdateTenantStatusRequest(BaseModel):
+    status: Literal["ACTIVE", "SUSPENDED"]

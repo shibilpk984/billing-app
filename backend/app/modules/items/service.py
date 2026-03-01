@@ -14,6 +14,9 @@ def create_item(
     display_order: int = 0
 ):
 
+    if tags is None:
+        tags = []
+
     result = db.execute(
         text("""
         INSERT INTO items(
@@ -51,7 +54,6 @@ def create_item(
     )
 
     item_id = result.fetchone()[0]
-
     db.commit()
 
     return item_id
@@ -70,11 +72,8 @@ def list_items(db: Session, tenant_id: int):
         {"tenant_id": tenant_id}
     )
 
-    items = []
-
-    for row in result.fetchall():
-
-        items.append({
+    return [
+        {
             "id": row.id,
             "name": row.name,
             "price": float(row.price),
@@ -84,6 +83,6 @@ def list_items(db: Session, tenant_id: int):
             "image_url": row.image_url,
             "display_order": row.display_order,
             "is_active": row.is_active
-        })
-
-    return items
+        }
+        for row in result.fetchall()
+    ]

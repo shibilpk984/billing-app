@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from fastapi import HTTPException
 import uuid
 
 
@@ -7,6 +8,9 @@ def generate_order_number():
     return "ORD-" + uuid.uuid4().hex[:6].upper()
 
 
+# ----------------------------------------
+# CREATE DRAFT ORDER
+# ----------------------------------------
 def create_draft_order(db: Session, tenant_id: int, user_id: int):
 
     order_number = generate_order_number()
@@ -47,6 +51,9 @@ def create_draft_order(db: Session, tenant_id: int, user_id: int):
     }
 
 
+# ----------------------------------------
+# LIST DRAFT ORDERS
+# ----------------------------------------
 def list_draft_orders(db: Session, tenant_id: int):
 
     result = db.execute(
@@ -71,7 +78,27 @@ def list_draft_orders(db: Session, tenant_id: int):
     ]
 
 
+# ----------------------------------------
+# ADD ITEM TO ORDER
+# ----------------------------------------
 def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, quantity: int):
+
+    # Validate order ownership + draft status
+    order = db.execute(
+        text("""
+        SELECT status
+        FROM orders
+        WHERE id = :order_id
+        AND tenant_id = :tenant_id
+        """),
+        {"order_id": order_id, "tenant_id": tenant_id}
+    ).fetchone()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != "DRAFT":
+        raise HTTPException(status_code=400, detail="Cannot modify completed order")
 
     item = db.execute(
         text("""
@@ -85,7 +112,7 @@ def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, 
     ).fetchone()
 
     if not item:
-        raise Exception("Item not found")
+        raise HTTPException(status_code=404, detail="Item not found")
 
     price = float(item.price)
     total = price * quantity
@@ -96,6 +123,7 @@ def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, 
             tenant_id,
             order_id,
             item_id,
+            item_name_snapshot,
             quantity,
             price_at_sale,
             total
@@ -104,6 +132,7 @@ def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, 
             :tenant_id,
             :order_id,
             :item_id,
+            :item_name,
             :quantity,
             :price,
             :total
@@ -113,12 +142,14 @@ def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, 
             "tenant_id": tenant_id,
             "order_id": order_id,
             "item_id": item_id,
+            "item_name": item.name,
             "quantity": quantity,
             "price": price,
             "total": total
         }
     )
 
+    # Update total
     db.execute(
         text("""
         UPDATE orders
@@ -143,18 +174,20 @@ def add_item_to_order(db: Session, tenant_id: int, order_id: int, item_id: int, 
     }
 
 
+# ----------------------------------------
+# GET ORDER DETAILS
+# ----------------------------------------
 def get_order_details(db: Session, tenant_id: int, order_id: int):
 
     result = db.execute(
         text("""
         SELECT
             oi.item_id,
-            i.name,
+            oi.item_name_snapshot,
             oi.quantity,
             oi.price_at_sale,
             oi.total
         FROM order_items oi
-        JOIN items i ON i.id = oi.item_id
         WHERE oi.order_id = :order_id
         AND oi.tenant_id = :tenant_id
         ORDER BY oi.id
@@ -165,7 +198,7 @@ def get_order_details(db: Session, tenant_id: int, order_id: int):
     return [
         {
             "item_id": row.item_id,
-            "name": row.name,
+            "name": row.item_name_snapshot,
             "quantity": row.quantity,
             "price": float(row.price_at_sale),
             "total": float(row.total)
@@ -174,6 +207,9 @@ def get_order_details(db: Session, tenant_id: int, order_id: int):
     ]
 
 
+# ----------------------------------------
+# COMPLETE ORDER
+# ----------------------------------------
 def complete_order(db: Session, tenant_id: int, order_id: int):
 
     order = db.execute(
@@ -187,10 +223,10 @@ def complete_order(db: Session, tenant_id: int, order_id: int):
     ).fetchone()
 
     if not order:
-        raise Exception("Order not found")
+        raise HTTPException(status_code=404, detail="Order not found")
 
     if order.status != "DRAFT":
-        raise Exception("Order already completed")
+        raise HTTPException(status_code=400, detail="Order already completed")
 
     db.execute(
         text("""
@@ -207,7 +243,9 @@ def complete_order(db: Session, tenant_id: int, order_id: int):
     return {"status": "completed", "order_id": order_id}
 
 
-# NEW — FULL BILL SUMMARY
+# ----------------------------------------
+# ORDER SUMMARY
+# ----------------------------------------
 def get_completed_order_summary(db: Session, tenant_id: int, order_id: int):
 
     order = db.execute(
@@ -221,7 +259,7 @@ def get_completed_order_summary(db: Session, tenant_id: int, order_id: int):
     ).fetchone()
 
     if not order:
-        raise Exception("Order not found")
+        raise HTTPException(status_code=404, detail="Order not found")
 
     items = get_order_details(db, tenant_id, order_id)
 

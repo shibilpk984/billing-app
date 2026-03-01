@@ -1,64 +1,115 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
+import os
 
 from app.core.database import get_db
+from app.core.dependencies import require_tenant_user
 
 from .service import (
     get_printable_invoice,
     generate_invoice_html
 )
+from .pdf_service import generate_and_store_pdf
 
 router = APIRouter(prefix="/print", tags=["print"])
 
 
-# JSON invoice endpoint (SECURE — uses header)
+# ----------------------------------------
+# JSON Invoice (Secure)
+# ----------------------------------------
 @router.get("/{order_id}")
 def get_print_invoice(
     order_id: int,
     db: Session = Depends(get_db),
-    x_tenant_id: int = Header(...)
+    user=Depends(require_tenant_user)
 ):
+    tenant_id = user.get("tenant_id")
 
-    try:
-
-        return get_printable_invoice(
-            db=db,
-            tenant_id=x_tenant_id,
-            order_id=order_id
-        )
-
-    except Exception as e:
-
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+    return get_printable_invoice(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=order_id
+    )
 
 
-# HTML printable invoice endpoint (BROWSER-FRIENDLY)
-# Uses query param instead of header
-# Example: /print/1/html?tenant_id=1
+# ----------------------------------------
+# HTML Invoice (Secure)
+# ----------------------------------------
 @router.get("/{order_id}/html", response_class=HTMLResponse)
 def get_print_invoice_html(
     order_id: int,
-    tenant_id: int = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_tenant_user)
+):
+    tenant_id = user.get("tenant_id")
+
+    html = generate_invoice_html(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=order_id
+    )
+
+    return HTMLResponse(content=html)
+
+
+# ----------------------------------------
+# Generate PDF
+# ----------------------------------------
+@router.post("/{order_id}/pdf")
+def generate_pdf(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_tenant_user)
+):
+    tenant_id = user.get("tenant_id")
+
+    return generate_and_store_pdf(
+        db=db,
+        tenant_id=tenant_id,
+        order_id=order_id
+    )
+
+
+# ----------------------------------------
+# Download Latest PDF
+# ----------------------------------------
+@router.get("/{order_id}/download")
+def download_pdf(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_tenant_user)
 ):
 
-    try:
+    from sqlalchemy import text
 
-        html = generate_invoice_html(
-            db=db,
-            tenant_id=tenant_id,
-            order_id=order_id
-        )
+    tenant_id = user.get("tenant_id")
 
-        return HTMLResponse(content=html)
+    invoice = db.execute(
+        text("""
+        SELECT file_path
+        FROM invoices
+        WHERE tenant_id = :tenant_id
+        AND order_id = :order_id
+        ORDER BY created_at DESC
+        LIMIT 1
+        """),
+        {
+            "tenant_id": tenant_id,
+            "order_id": order_id
+        }
+    ).fetchone()
 
-    except Exception as e:
+    if not invoice:
+        raise HTTPException(status_code=404, detail="PDF not found")
 
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+    file_path = invoice.file_path
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File missing on server")
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=os.path.basename(file_path)
+    )
